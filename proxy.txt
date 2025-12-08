@@ -1,6 +1,16 @@
 142.111.48.253:7030:superlive11:S1KaSuperstar
 31.59.20.176:6754:superlive11:S1KaSuperstar
 23.95.150.145:6114:superlive11:S1KaSuperstar
+142.111.48.253:7030:superlive12:S1KaSuperstar
+31.59.20.176:6754:superlive12:S1KaSuperstar
+23.95.150.145:6114:superlive12:S1KaSuperstar
+198.23.239.134:6540:superlive12:S1KaSuperstar
+107.172.163.27:6543:superlive12:S1KaSuperstar
+198.105.121.200:6462:superlive12:S1KaSuperstar
+64.137.96.74:6641:superlive12:S1KaSuperstar
+84.247.60.125:6095:superlive12:S1KaSuperstar
+216.10.27.159:6837:superlive12:S1KaSuperstar
+142.111.67.146:5611:superlive12:S1KaSuperstar
 198.23.239.134:6540:superlive11:S1KaSuperstar
 107.172.163.27:6543:superlive11:S1KaSuperstar
 198.105.121.200:6462:superlive11:S1KaSuperstar
