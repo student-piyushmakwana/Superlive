@@ -13,156 +13,212 @@ api_bp = Blueprint("api", __name__)
 GIFT_LOOP_ACTIVE = False
 CURRENT_TASK = None
 
-async def run_auto_gift_loop(livestream_id):
+async def run_worker(livestream_id, worker_id, proxy_url):
     """
-    Background task that loops:
-    1. Register Device
-    2. Get Temp Mail & Signup
-    3. Inner Loop: Send Gift until 400/401
-    4. Cleanup: Logout & Delete Inbox
+    Individual worker task that performs the gift loop using a specific proxy.
     """
     global GIFT_LOOP_ACTIVE
+    logger.info(f"[Worker {worker_id}] Started with proxy {proxy_url}")
     
-    logger.info(f"Starting Auto Gift Loop for livestream {livestream_id}")
+    # Initialize a dedicated client for this worker
+    # We replicate the header structure from SuperliveClient here for the isolated instance
+    from app.core.config import config
+    
+    proxies_config = None
+    if proxy_url:
+        proxies_config = proxy_url # httpx 'proxy' argument expects string for all protocols or dict. 
+                                   # We used 'proxy' arg in client.py which takes string.
+                                   # But here we want to use 'proxies' dict if we want to be explicit, 
+                                   # or just pass the string to 'proxy' param if we use the same call.
+                                   # Let's use the same headers as the main client.
+
+    headers = {
+        "accept": "application/json",
+        "accept-encoding": "gzip, deflate, br, zstd",
+        "accept-language": "en-US,en;q=0.9",
+        "content-type": "application/json",
+        "device-id": config.DEVICE_ID, # Will be updated per cycle
+        "origin": config.ORIGIN,
+        "priority": "u=1, i",
+        "referer": config.REFERER,
+        "sec-ch-ua": '"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "cross-site",
+        "user-agent": config.USER_AGENT
+    }
+
+    import httpx
     
     while GIFT_LOOP_ACTIVE:
-        try:
-            # --- 0. Configure Proxy ---
-            import random
-            from app.core.config import config
-            
-            selected_proxy = None
-            if hasattr(config, 'PROXIES') and config.PROXIES:
-                selected_proxy = random.choice(config.PROXIES)
-                
-            from app.core.client import SuperliveClient
-            SuperliveClient.init_client(proxy=selected_proxy)
-            
-            # --- 1. Register Device ---
-            logger.info(">>> [Loop Start] Registering new device")
-            from app.core.device import register_device
-            import httpx
+        # Create a new client session for each identity cycle (Register -> Signup -> Gift -> Logout)
+        # This closely mimics the previous flow but isolated per worker
+        async with httpx.AsyncClient(
+            timeout=config.REQUEST_TIMEOUT,
+            follow_redirects=True,
+            proxy=proxy_url,
+            verify=False,
+            headers=headers
+        ) as client:
             
             try:
-                device_id = await register_device(proxy=selected_proxy)
-                SuperliveClient.update_device_id(device_id)
-            except httpx.HTTPStatusError as e:
-                logger.error(f"Device registration failed with status {e.response.status_code}")
-                if e.response.status_code == 400:
-                    logger.critical("Stopping Auto Gift Loop due to 400 Bad Request on registration")
-                    GIFT_LOOP_ACTIVE = False
-                    break
-                await asyncio.sleep(5)
-                continue
-            except Exception as e:
-                logger.error(f"Device registration failed: {e}")
-                await asyncio.sleep(5)
-                continue
-
-            # --- 2. Temp Mail & Signup ---
-            logger.info(">>> Fetching Temp Mail")
-            request_time = int(time.time() * 1000)
-            token = None
-            tm_cookies = {}
-            
-            try:
-                inbox_resp = await temp_mail_viewmodel.get_inbox(request_time)
-                inbox_data = inbox_resp.json()
-                email = inbox_data.get("data", {}).get("name")
-                tm_cookies = dict(inbox_resp.cookies)
+                # --- 1. Register Device ---
+                logger.info(f"[Worker {worker_id}] Registering new device")
+                from app.core.device import register_device
                 
-                if not email:
-                    raise Exception("No email found in tempmail")
-                    
-                logger.info(f"Using email: {email}")
-                
-                # Verify Code Flow
-                send_resp = await api_viewmodel.send_verification_code(email)
-                email_verification_id = send_resp.get("email_verification_id") or send_resp.get("data", {}).get("email_verification_id")
-                
-                if not email_verification_id:
-                     raise Exception("No verification ID")
-                     
-                # Poll OTP
-                otp = None
-                poll_start = time.time()
-                while time.time() - poll_start < 40:
-                    try:
-                        poll_resp = await temp_mail_viewmodel.get_inbox(int(time.time() * 1000), "us", tm_cookies)
-                        otp = temp_mail_viewmodel.extract_otp(poll_resp.json())
-                        if otp:
-                            break
-                    except:
-                        pass
-                    await asyncio.sleep(3)
-                    if not GIFT_LOOP_ACTIVE: break 
-                
-                if not otp:
-                    raise Exception("OTP Timeout")
-                    
-                await api_viewmodel.verify_email(email_verification_id, otp)
-                signup_res = await api_viewmodel.complete_signup(email, email)
-                token = signup_res.get("data", {}).get("token") or signup_res.get("token")
-                
-                if not token:
-                    raise Exception("No token after signup")
-                    
-                logger.info(f"Signup success: {token[:10]}...")
-                
-            except Exception as e:
-                logger.error(f"Signup sequence failed: {e}")
-                # If we have an inbox but failed signup, try to clean it?
-                # But better just retry outer loop
-                await asyncio.sleep(2)
-                continue
-
-            # --- 3. Inner Loop: Send Gift ---
-            logger.info(">>> Starting Gift Loop")
-            gift_payload = {
-                "token": token,
-                "livestream_id": livestream_id,
-                "gift_id": 5141,
-                "gift_context": 1
-            }
-            
-            while GIFT_LOOP_ACTIVE:
                 try:
-                    await api_viewmodel.send_gift(token, gift_payload)
-                    logger.info("Gift Sent (200 OK)")
-                    await asyncio.sleep(1) # Small delay to avoid hammering
-                except SuperliveError as se:
-                    logger.warning(f"Gift failed with {se.status_code}. Stopping inner loop.")
-                    if se.status_code in [400, 401]:
-                        break # Stop inner loop, proceed to cleanup
-                    if se.status_code == 403:
-                         break # Also break on forbidden
-                    # For other errors (500 etc), maybe retry? 
-                    # User said "while you not getting 400 or 401". So keep trying if 500?
-                    # Let's break to be safe and recycle.
-                    break
+                    # Register device using the same proxy
+                    device_id = await register_device(proxy=proxy_url)
+                    # Update this client's device-id header
+                    client.headers["device-id"] = device_id
+                    
+                except httpx.HTTPStatusError as e:
+                    logger.error(f"[Worker {worker_id}] Device registration failed: {e.response.status_code}")
+                    if e.response.status_code == 400:
+                        logger.critical(f"[Worker {worker_id}] Stopping due to 400 Bad Request")
+                        # If one worker fails with 400, strictly we should probably stop all? 
+                        # Or just this one? The user said "imedialy stop the loops".
+                        # So we kill the global flag.
+                        GIFT_LOOP_ACTIVE = False
+                        break
+                    await asyncio.sleep(5)
+                    continue
                 except Exception as e:
-                    logger.error(f"Gift error: {e}")
-                    break
-            
-            # --- 4. Cleanup ---
-            logger.info(">>> Cleanup: Logout and Delete Inbox")
-            try:
-                await api_viewmodel.logout(token)
-                logger.info("Logged out")
-            except Exception as e:
-                logger.warning(f"Logout failed: {e}")
-                
-            try:
-                await temp_mail_viewmodel.delete_inbox(tm_cookies, int(time.time() * 1000))
-                logger.info("Inbox deleted")
-            except Exception as e:
-                logger.warning(f"Delete inbox failed: {e}")
-                
-        except Exception as e:
-            logger.error(f"Outer loop error: {e}")
-            await asyncio.sleep(5)
+                    logger.error(f"[Worker {worker_id}] Device reg error: {e}")
+                    await asyncio.sleep(5)
+                    continue
 
-    logger.info("Auto Gift Loop Stopped")
+                # --- 2. Temp Mail & Signup ---
+                logger.info(f"[Worker {worker_id}] Fetching Temp Mail")
+                request_time = int(time.time() * 1000)
+                tm_cookies = {}
+                token = None
+                
+                try:
+                    inbox_resp = await temp_mail_viewmodel.get_inbox(request_time)
+                    inbox_data = inbox_resp.json()
+                    email = inbox_data.get("data", {}).get("name")
+                    tm_cookies = dict(inbox_resp.cookies)
+                    
+                    if not email:
+                        raise Exception("No email found")
+                    
+                    # Verify Code Flow
+                    # Pass 'client' to use this worker's session/proxy
+                    send_resp = await api_viewmodel.send_verification_code(email, client=client)
+                    email_verification_id = send_resp.get("email_verification_id") or send_resp.get("data", {}).get("email_verification_id")
+                    
+                    if not email_verification_id:
+                        raise Exception("No verification ID")
+                        
+                    # Poll OTP
+                    otp = None
+                    poll_start = time.time()
+                    while time.time() - poll_start < 40:
+                        try:
+                            # TempMail viewmodel creates its own client, which is fine (no proxy needed usually)
+                            # But if needed we can add proxy support there too. 
+                            # For now assumption: tempmail doesn't need the rotate proxy.
+                            poll_resp = await temp_mail_viewmodel.get_inbox(int(time.time() * 1000), "us", tm_cookies)
+                            otp = temp_mail_viewmodel.extract_otp(poll_resp.json())
+                            if otp:
+                                break
+                        except:
+                            pass
+                        await asyncio.sleep(2)
+                        if not GIFT_LOOP_ACTIVE: break
+                    
+                    if not otp:
+                         raise Exception("OTP Timeout")
+                         
+                    await api_viewmodel.verify_email(email_verification_id, otp, client=client)
+                    signup_res = await api_viewmodel.complete_signup(email, email, client=client)
+                    token = signup_res.get("data", {}).get("token") or signup_res.get("token")
+                    
+                    if not token:
+                        raise Exception("No token")
+                        
+                    logger.info(f"[Worker {worker_id}] Signup success")
+                    
+                except Exception as e:
+                    logger.error(f"[Worker {worker_id}] Signup failed: {e}")
+                    await asyncio.sleep(2)
+                    continue
+
+                # --- 3. Inner Gift Loop ---
+                gift_payload = {
+                     "token": token,
+                     "livestream_id": livestream_id,
+                     "gift_id": 5141,
+                     "gift_context": 1
+                }
+                
+                while GIFT_LOOP_ACTIVE:
+                    try:
+                        await api_viewmodel.send_gift(token, gift_payload, client=client)
+                        logger.info(f"[Worker {worker_id}] Gift Sent (200 OK)")
+                        await asyncio.sleep(0.25) 
+                    except SuperliveError as se:
+                         if se.status_code in [400, 401]:
+                             logger.warning(f"[Worker {worker_id}] Gift 400/401. cleaning up.")
+                             break 
+                         if se.status_code == 403:
+                             break
+                         break # Break on other errors too to be safe
+                    except Exception as e:
+                        logger.error(f"[Worker {worker_id}] Gift error: {e}")
+                        break
+                
+                # --- 4. Cleanup ---
+                try:
+                    await api_viewmodel.logout(token, client=client)
+                except:
+                     pass
+                
+                try:
+                    await temp_mail_viewmodel.delete_inbox(tm_cookies, int(time.time()*1000))
+                except:
+                    pass
+                    
+            except Exception as e:
+                logger.error(f"[Worker {worker_id}] Main loop error: {e}")
+                await asyncio.sleep(5)
+
+    logger.info(f"[Worker {worker_id}] Stopped")
+
+async def run_auto_gift_loop(livestream_id, worker_count=1):
+    """
+    Orchestrator that spawns N workers.
+    """
+    global GIFT_LOOP_ACTIVE
+    from app.core.config import config
+    
+    tasks = []
+    available_proxies = config.PROXIES if hasattr(config, 'PROXIES') else []
+    
+    # Ensure we don't exceed max workers or proxy count if valid
+    # User said "ten proxy means 10 worker... maximum worker 10"
+    count = min(worker_count, 10)
+    if not available_proxies:
+        logger.warning("No proxies found! Workers will run without proxy (or share IP).")
+        # Fallback if no proxies? 
+        # For now let's just run them.
+    
+    logger.info(f"Spawning {count} workers for stream {livestream_id}")
+    
+    for i in range(count):
+        # Assign proxy round-robin or just index based since count <= len(proxies) hopefully
+        proxy = None
+        if available_proxies:
+            proxy = available_proxies[i % len(available_proxies)]
+            
+        task = asyncio.create_task(run_worker(livestream_id, i+1, proxy))
+        tasks.append(task)
+        
+    await asyncio.gather(*tasks)
+
 
 
 @api_bp.route('/login', methods=['POST'])
@@ -342,13 +398,14 @@ async def auto_gift():
                 return jsonify({"message": "Loop is already running"}), 200
                 
             livestream_id = req_data.get('livestream_id') or 127902815
+            worker_count = req_data.get('worker', 1)
             GIFT_LOOP_ACTIVE = True
             
             # Start background task
             # In Quart/Asyncio, we can use create_task
-            CURRENT_TASK = asyncio.create_task(run_auto_gift_loop(livestream_id))
+            CURRENT_TASK = asyncio.create_task(run_auto_gift_loop(livestream_id, worker_count))
             
-            return jsonify({"message": "Auto gift loop started in background"}), 200
+            return jsonify({"message": f"Auto gift loop started with {worker_count} workers"}), 200
             
         return jsonify({"error": "Invalid code. Use 10 to start, 12 to stop."}), 400
         

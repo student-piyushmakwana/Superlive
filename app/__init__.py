@@ -7,6 +7,8 @@ from app.core.client import SuperliveClient
 from app.modules.api.routes import api_bp
 from app.modules.tempmail.routes import temp_mail_bp
 
+from app.core.logger import setup_logger
+
 def create_app():
     app = Quart(__name__)
     app = cors(app, allow_origin="*")
@@ -16,6 +18,7 @@ def create_app():
 
     @app.before_serving
     async def startup():
+        setup_logger()
         logging.info("🚀 Starting Superlive API...")
 
     @app.after_serving

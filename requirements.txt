@@ -3,3 +3,4 @@ quart-cors
 httpx
 requests
 python-dotenv
+coloredlogs

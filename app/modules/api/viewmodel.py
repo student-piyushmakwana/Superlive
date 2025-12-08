@@ -17,9 +17,10 @@ class SuperliveError(Exception):
 
 class ApiViewModel:
     
-    async def login(self, email, password):
+    async def login(self, email, password, client=None):
         url = f"{config.API_BASE_URL}/signup/email_signin"
-        client = SuperliveClient.get_client()
+        if client is None:
+            client = SuperliveClient.get_client()
         
         payload = {
             "client_params": self._get_client_params(),
@@ -42,9 +43,10 @@ class ApiViewModel:
             logger.error(f"Unexpected login error: {e}")
             raise SuperliveError(f"Unexpected error: {str(e)}")
 
-    async def get_profile(self, token):
+    async def get_profile(self, token, client=None):
         url = f"{config.API_BASE_URL}/own_profile"
-        client = SuperliveClient.get_client()
+        if client is None:
+            client = SuperliveClient.get_client()
         
         headers = client.headers.copy()
         headers["authorization"] = f"Token {token}"
@@ -68,9 +70,10 @@ class ApiViewModel:
             logger.error(f"Unexpected profile error: {e}")
             raise SuperliveError(f"Unexpected error: {str(e)}")
 
-    async def send_gift(self, token, gift_details):
+    async def send_gift(self, token, gift_details, client=None):
         url = f"{config.API_BASE_URL}/livestream/chat/send_gift"
-        client = SuperliveClient.get_client()
+        if client is None:
+            client = SuperliveClient.get_client()
         
         headers = client.headers.copy()
         headers["authorization"] = f"Token {token}"
@@ -105,9 +108,10 @@ class ApiViewModel:
             logger.error(f"Unexpected send gift error: {e}")
             raise SuperliveError(f"Unexpected error: {str(e)}")
 
-    async def get_livestream(self, token, livestream_id):
+    async def get_livestream(self, token, livestream_id, client=None):
         url = f"{config.API_BASE_URL}/livestream/retrieve"
-        client = SuperliveClient.get_client()
+        if client is None:
+            client = SuperliveClient.get_client()
         
         headers = client.headers.copy()
         headers["authorization"] = f"Token {token}"
@@ -132,9 +136,10 @@ class ApiViewModel:
             logger.error(f"Unexpected livestream error: {e}")
             raise SuperliveError(f"Unexpected error: {str(e)}")
 
-    async def send_verification_code(self, email):
+    async def send_verification_code(self, email, client=None):
         url = f"{config.API_BASE_URL}/signup/send_email_verification_code"
-        client = SuperliveClient.get_client()
+        if client is None:
+            client = SuperliveClient.get_client()
         
         payload = {
             "client_params": self._get_client_params(),
@@ -157,9 +162,10 @@ class ApiViewModel:
             logger.error(f"Unexpected send verification error: {e}")
             raise SuperliveError(f"Unexpected error: {str(e)}")
 
-    async def verify_email(self, email_verification_id, code):
+    async def verify_email(self, email_verification_id, code, client=None):
         url = f"{config.API_BASE_URL}/signup/verify_email"
-        client = SuperliveClient.get_client()
+        if client is None:
+            client = SuperliveClient.get_client()
         
         payload = {
             "client_params": self._get_client_params(),
@@ -182,10 +188,11 @@ class ApiViewModel:
             logger.error(f"Unexpected verify email error: {e}")
             raise SuperliveError(f"Unexpected error: {str(e)}")
 
-    async def complete_signup(self, email, password):
+    async def complete_signup(self, email, password, client=None):
         # Note: Request URL for final signup is same as initial check but it succeeds after verification
         url = f"{config.API_BASE_URL}/signup/email"
-        client = SuperliveClient.get_client()
+        if client is None:
+            client = SuperliveClient.get_client()
         
         payload = {
             "client_params": self._get_client_params(),
@@ -201,9 +208,10 @@ class ApiViewModel:
             logger.error(f"Unexpected complete signup error: {e}")
             raise SuperliveError(f"Unexpected error: {str(e)}")
 
-    async def logout(self, token):
+    async def logout(self, token, client=None):
         url = f"{config.API_BASE_URL}/user/logout"
-        client = SuperliveClient.get_client()
+        if client is None:
+            client = SuperliveClient.get_client()
         
         headers = client.headers.copy()
         headers["authorization"] = f"Token {token}"
