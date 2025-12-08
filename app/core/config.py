@@ -27,6 +27,11 @@ class Config:
     ORIGIN = "https://superlive.chat"
     REFERER = "https://superlive.chat/"
     
+    DOMAINS = [
+        {"origin": "https://superlive.chat", "referer": "https://superlive.chat/"},
+        {"origin": "https://superlivetv.com", "referer": "https://superlivetv.com/"},
+    ]
+    
     DEVICE_ID = os.environ.get("DEVICE_ID", "6f085f032ee56b4880bb78584529d0b7")
     USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"
 

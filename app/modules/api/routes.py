@@ -27,6 +27,9 @@ async def run_worker(livestream_id, worker_index, total_workers, proxy_enabled=T
     attempt = 0
     worker_display_id = worker_index + 1
     
+    worker_display_id = worker_index + 1
+    
+    current_domain_idx = 0
     consecutive_errors = 0
     MAX_RETRIES = 3 # "Maximum sathe worker 3 attempt to marne hi chahiye"
 
@@ -34,8 +37,10 @@ async def run_worker(livestream_id, worker_index, total_workers, proxy_enabled=T
 
     while GIFT_LOOP_ACTIVE:
         if consecutive_errors >= MAX_RETRIES:
-            logger.error(f"🛑 [Worker {worker_display_id}] Stopped after {consecutive_errors} consecutive failures.")
-            break
+            current_domain_idx = (current_domain_idx + 1) % len(config.DOMAINS)
+            consecutive_errors = 0
+            logger.warning(f"🔄 [Worker {worker_display_id}] Max retries reached. Switching to domain: {config.DOMAINS[current_domain_idx]['origin']}")
+            # break # Don't break, just continue with new domain
 
         # Determine Proxy for this cycle/attempt
         current_proxy = None
@@ -49,15 +54,16 @@ async def run_worker(livestream_id, worker_index, total_workers, proxy_enabled=T
         # logger.info(f"[Worker {worker_display_id}] Starting Cycle {attempt+1} with Proxy: {current_proxy}")
         
         # Prepare headers (standard)
+        domain_config = config.DOMAINS[current_domain_idx]
         headers = {
             "accept": "application/json",
             "accept-encoding": "gzip, deflate, br, zstd",
             "accept-language": "en-US,en;q=0.9",
             "content-type": "application/json",
             # device-id updated later
-            "origin": config.ORIGIN,
+            "origin": domain_config["origin"],
             "priority": "u=1, i",
-            "referer": config.REFERER,
+            "referer": domain_config["referer"],
             "sec-ch-ua": '"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
             "sec-ch-ua-mobile": "?0",
             "sec-ch-ua-platform": '"Windows"',
@@ -132,8 +138,10 @@ async def run_worker(livestream_id, worker_index, total_workers, proxy_enabled=T
                     except SuperliveError as se:
                          error_data = se.details.get("error", {}) if se.details else {}
                          if isinstance(error_data, dict) and error_data.get("code") == 12:
-                             logger.error(f"🛑 [Worker {worker_display_id}] Verification Limit Reached (Code 12). Stopping Worker.")
-                             break # Stop the worker completely
+                             logger.warning(f"⚠️ [Worker {worker_display_id}] Verification Limit Reached (Code 12). Sleeping 10s and retrying...")
+                             await asyncio.sleep(10)
+                             attempt += 1 # Rotate proxy
+                             continue # Retry loop
                          raise se
 
                     email_verification_id = send_resp.get("email_verification_id") or send_resp.get("data", {}).get("email_verification_id")
