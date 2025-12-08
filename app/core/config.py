@@ -12,6 +12,9 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
+# Silence asyncio warnings
+logging.getLogger("asyncio").setLevel(logging.ERROR)
+
 logger = logging.getLogger("superlive.config")
 
 class Config:

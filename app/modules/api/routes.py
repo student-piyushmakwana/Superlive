@@ -25,9 +25,18 @@ async def run_worker(livestream_id, worker_index, total_workers, proxy_enabled=T
     
     proxies = config.PROXIES or []
     attempt = 0
-    worker_display_id = worker_index + 1 # For logging 1-based
+    worker_display_id = worker_index + 1
     
+    consecutive_errors = 0
+    MAX_RETRIES = 3 # "Maximum sathe worker 3 attempt to marne hi chahiye"
+
+    logger.info(f"➡️ [Worker {worker_display_id}] Started")
+
     while GIFT_LOOP_ACTIVE:
+        if consecutive_errors >= MAX_RETRIES:
+            logger.error(f"🛑 [Worker {worker_display_id}] Stopped after {consecutive_errors} consecutive failures.")
+            break
+
         # Determine Proxy for this cycle/attempt
         current_proxy = None
         
@@ -37,7 +46,7 @@ async def run_worker(livestream_id, worker_index, total_workers, proxy_enabled=T
             proxy_idx = (worker_index + (attempt * total_workers)) % len(proxies)
             current_proxy = proxies[proxy_idx]
             
-        logger.info(f"[Worker {worker_display_id}] Starting Cycle {attempt+1} with Proxy: {current_proxy}")
+        # logger.info(f"[Worker {worker_display_id}] Starting Cycle {attempt+1} with Proxy: {current_proxy}")
         
         # Prepare headers (standard)
         headers = {
@@ -80,16 +89,18 @@ async def run_worker(livestream_id, worker_index, total_workers, proxy_enabled=T
                     client.headers["device-id"] = device_id
                     
                 except httpx.HTTPStatusError as e:
-                    logger.error(f"[Worker {worker_display_id}] Device registration failed: {e.response.status_code}")
                     if e.response.status_code == 400:
-                        logger.critical(f"[Worker {worker_display_id}] Stopping due to 400 Bad Request")
-                        GIFT_LOOP_ACTIVE = False
+                        logger.critical(f"🛑 [Worker {worker_display_id}] Critical 400 Device Error. Stopping this worker.")
                         break
+                    
+                    consecutive_errors += 1
+                    logger.warning(f"⚠️ [Worker {worker_display_id}] Device Reg Failed ({e.response.status_code}). Retrying ({consecutive_errors}/{MAX_RETRIES})...")
                     await asyncio.sleep(2)
-                    attempt += 1 # Increment attempt to rotate proxy
+                    attempt += 1 
                     continue
                 except Exception as e:
-                    logger.error(f"[Worker {worker_display_id}] Device reg error: {e}")
+                    consecutive_errors += 1
+                    logger.warning(f"⚠️ [Worker {worker_display_id}] Device Reg Error: {e}. Retrying ({consecutive_errors}/{MAX_RETRIES})...")
                     await asyncio.sleep(2)
                     attempt += 1
                     continue
@@ -121,10 +132,8 @@ async def run_worker(livestream_id, worker_index, total_workers, proxy_enabled=T
                     except SuperliveError as se:
                          error_data = se.details.get("error", {}) if se.details else {}
                          if isinstance(error_data, dict) and error_data.get("code") == 12:
-                             logger.warning(f"[Worker {worker_display_id}] Limit reached (Code 12). Retrying...")
-                             await asyncio.sleep(1)
-                             attempt += 1 
-                             continue
+                             logger.error(f"🛑 [Worker {worker_display_id}] Verification Limit Reached (Code 12). Stopping Worker.")
+                             break # Stop the worker completely
                          raise se
 
                     email_verification_id = send_resp.get("email_verification_id") or send_resp.get("data", {}).get("email_verification_id")
@@ -156,10 +165,21 @@ async def run_worker(livestream_id, worker_index, total_workers, proxy_enabled=T
                     if not token:
                         raise Exception("No token")
                         
-                    logger.info(f"[Worker {worker_display_id}] Signup success ({email})")
+                    logger.info(f"✅ [Worker {worker_display_id}] Signup Success ({email})")
+                    consecutive_errors = 0 # Reset errors on success
+                    
+                    # Update Profile Logic
+                    try:
+                        await api_viewmodel.update_profile(token, client=client)
+                        logger.info(f"👤 [Worker {worker_display_id}] Profile Updated")
+                        await asyncio.sleep(0.5) # Short pause after update
+                    except Exception as e:
+                        logger.warning(f"⚠️ [Worker {worker_display_id}] Profile Update Failed: {e}")
+                        # Continue anyway
                     
                 except Exception as e:
-                    logger.error(f"[Worker {worker_display_id}] Signup failed: {e}")
+                    consecutive_errors += 1
+                    logger.error(f"❌ [Worker {worker_display_id}] Signup Failed: {str(e)[:50]}... ({consecutive_errors}/{MAX_RETRIES})")
                     await asyncio.sleep(1)
                     attempt += 1 # Rotate proxy on failure
                     continue
@@ -175,17 +195,17 @@ async def run_worker(livestream_id, worker_index, total_workers, proxy_enabled=T
                 while GIFT_LOOP_ACTIVE:
                     try:
                         await api_viewmodel.send_gift(token, gift_payload, client=client)
-                        logger.info(f"[Worker {worker_display_id}] Gift Sent 🎁")
-                        await asyncio.sleep(0.25) 
+                        logger.info(f"🎁 [Worker {worker_display_id}] Gift Sent")
+                        await asyncio.sleep(1.0) # Increased delay to avoid detection
                     except SuperliveError as se:
                          if se.status_code in [400, 401]:
-                             logger.warning(f"[Worker {worker_display_id}] Gift 400/401. Restarting cycle.")
+                             logger.warning(f"⚠️ [Worker {worker_display_id}] Gift 400/401. Restarting cycle.")
                              break 
                          if se.status_code == 403:
                              break
                          break 
                     except Exception as e:
-                        logger.error(f"[Worker {worker_display_id}] Gift error: {e}")
+                        logger.error(f"⚠️ [Worker {worker_display_id}] Gift Error: {e}")
                         break
                 
                 # --- 4. Cleanup ---
@@ -199,20 +219,15 @@ async def run_worker(livestream_id, worker_index, total_workers, proxy_enabled=T
                     pass
                 
                 # Cycle finished successfully (or broke from inner loop)
-                # We can keep using same proxy? User logic implies rotation mainly on FAILURE.
-                # But for safety, let's rotate every time we need a new identity?
-                # "if first 4 fails then try next 4".
-                # If it succeeds, maybe stick to it? 
-                # Actually, standard practice is new identity = new proxy preferred.
-                # Let's increment attempt count to rotate.
                 attempt += 1
 
             except Exception as e:
-                logger.error(f"[Worker {worker_display_id}] Main loop error: {e}")
+                consecutive_errors += 1
+                logger.error(f"❌ [Worker {worker_display_id}] Main Loop Error: {e}. ({consecutive_errors}/{MAX_RETRIES})")
                 await asyncio.sleep(2)
                 attempt += 1
 
-    logger.info(f"[Worker {worker_display_id}] Stopped")
+    logger.info(f"🛑 [Worker {worker_display_id}] Stopped safely")
 
 async def run_auto_gift_loop(livestream_id, worker_count=1, proxy_enabled=True):
     """
@@ -231,7 +246,7 @@ async def run_auto_gift_loop(livestream_id, worker_count=1, proxy_enabled=True):
     # Let's cap at 50 to be safe? Or just trust user input.
     # User said "maximux worker 10" previously, but now gave 100 proxies.
     # Let's respect user input but maybe cap sanity at 30?
-    count = min(worker_count, 30) 
+    count = min(worker_count, 100) 
     
     logger.info(f"Spawning {count} workers (Pool: {len(proxies)} proxies, Proxy Enabled: {proxy_enabled})")
     
@@ -284,6 +299,26 @@ async def profile():
         return jsonify({"error": e.details or e.message}), e.status_code
     except Exception as e:
         logger.error(f"Profile route error: {e}", exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+@api_bp.route('/update-profile', methods=['POST'])
+async def update_profile():
+    try:
+        data = await request.get_json()
+        if not data:
+            return jsonify({"error": "Missing JSON body"}), 400
+            
+        token = data.get('token')
+        if not token:
+            return jsonify({"error": "Missing token"}), 400
+            
+        result = await api_viewmodel.update_profile(token)
+        return jsonify(result), 200
+        
+    except SuperliveError as e:
+        return jsonify({"error": e.details or e.message}), e.status_code
+    except Exception as e:
+        logger.error(f"Update profile route error: {e}", exc_info=True)
         return jsonify({"error": "Internal server error"}), 500
 
 @api_bp.route('/send-gift', methods=['POST'])
@@ -421,7 +456,7 @@ async def auto_gift():
                 return jsonify({"message": "Loop is already running"}), 200
                 
             livestream_id = req_data.get('livestream_id') or 127902815
-            worker_count = req_data.get('worker', 1)
+            worker_count = req_data.get('worker', 2)
             proxy_on = req_data.get('proxy_on', True)
             GIFT_LOOP_ACTIVE = True
             

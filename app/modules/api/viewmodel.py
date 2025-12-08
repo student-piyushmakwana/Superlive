@@ -236,6 +236,45 @@ class ApiViewModel:
             logger.error(f"Unexpected logout error: {e}")
             raise SuperliveError(f"Unexpected error: {str(e)}")
 
+    async def update_profile(self, token, client=None):
+        url = f"{config.API_BASE_URL}/users/update"
+        if client is None:
+            client = SuperliveClient.get_client()
+            
+        headers = client.headers.copy()
+        headers["authorization"] = f"Token {token}"
+        
+        # Random Heart Logic
+        import random
+        hearts = ["❤️", "🩷","🧡","💛","💚","💙","🩵","💜","🤎","🖤","🩶","🤍"]
+        random_heart = random.choice(hearts)
+        name_with_heart = f"Piyush {random_heart}" 
+        
+        # Use specific client params for profile update
+        client_params = self._get_client_params()
+        client_params["source_url"] = "https://superlive.chat/profile/edit-profile"
+        
+        payload = {
+            "client_params": client_params,
+            "name": name_with_heart,
+            "bio": "SDE 🖥️"
+        }
+        
+        try:
+            response = await client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Update profile failed: {e.response.text}")
+            try:
+                details = e.response.json()
+            except:
+                details = {"error": e.response.text}
+            raise SuperliveError("Update profile failed", e.response.status_code, details)
+        except Exception as e:
+            logger.error(f"Unexpected update profile error: {e}")
+            raise SuperliveError(f"Unexpected error: {str(e)}")
+
     def _get_client_params(self, livestream_id=None):
         source_url = "https://superlive.chat/profile/myprofile"
         if livestream_id:
