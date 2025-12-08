@@ -20,8 +20,10 @@ async def main():
         found = False
         for line in lines:
             if line.startswith("DEVICE_ID="):
-                new_lines.append(f"DEVICE_ID={device_id}\n")
-                found = True
+                if not found:
+                    new_lines.append(f"DEVICE_ID={device_id}\n")
+                    found = True
+                # Skip duplicate DEVICE_ID lines
             else:
                 new_lines.append(line)
         
