@@ -17,8 +17,62 @@ class SuperliveError(Exception):
 
 class ApiViewModel:
     
+    async def _make_request(self, method: str, endpoint: str, client, error_context: str = "Request failed", **kwargs):
+        """
+        Helper method to make requests with fallback to backup URL on network errors or specific status codes.
+        """
+        urls = [
+            f"{config.API_BASE_URL}{endpoint}",
+            f"{config.API_BASE_URL_BACKUP}{endpoint}"
+        ]
+        
+        last_exception = None
+        
+        for i, url in enumerate(urls):
+            is_backup = i > 0
+            try:
+                if is_backup:
+                    logger.warning(f"Retrying with backup URL: {url}")
+                    
+                response = await client.request(method, url, **kwargs)
+                response.raise_for_status()
+                return response.json()
+                
+            except httpx.HTTPStatusError as e:
+                # If it's a 5xx or 403, we might want to try backup
+                # Also adding 404 just in case the primary API routing is broken
+                # The user mentioned "code 12", but we catch standard HTTP connection issues
+                if e.response.status_code in [403, 502, 503, 504] and not is_backup:
+                    logger.warning(f"Primary URL failed with status {e.response.status_code}. Attempting backup.")
+                    last_exception = e
+                    continue
+                
+                logger.error(f"{error_context}: {e.response.text}")
+                try:
+                    details = e.response.json()
+                except:
+                    details = {"error": e.response.text}
+                raise SuperliveError(error_context, e.response.status_code, details)
+                
+            except (httpx.NetworkError, httpx.TimeoutException) as e:
+                if not is_backup:
+                    logger.warning(f"Network error on primary URL: {e}. Attempting backup.")
+                    last_exception = e
+                    continue
+                
+                logger.error(f"Unexpected {error_context.lower()} error: {e}")
+                # If we have a last_exception from primary, maybe we should mention that too?
+                # But usually the last error (backup failed) is the one to raise
+                raise SuperliveError(f"Unexpected error: {str(e)}")
+                
+            except Exception as e:
+                logger.error(f"Unexpected {error_context.lower()} error: {e}")
+                raise SuperliveError(f"Unexpected error: {str(e)}")
+                
+        # Should not reach here if loop works correctly
+        raise SuperliveError(f"Unexpected error: {str(last_exception)}")
+
     async def login(self, email, password, client=None):
-        url = f"{config.API_BASE_URL}/signup/email_signin"
         if client is None:
             client = SuperliveClient.get_client()
         
@@ -28,23 +82,16 @@ class ApiViewModel:
             "password": password
         }
         
-        try:
-            response = await client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Login failed: {e.response.text}")
-            try:
-                details = e.response.json()
-            except:
-                details = {"error": e.response.text}
-            raise SuperliveError("Login failed", e.response.status_code, details)
-        except Exception as e:
-            logger.error(f"Unexpected login error: {e}")
-            raise SuperliveError(f"Unexpected error: {str(e)}")
+        # Fixed: Removed undefined 'headers' variable usage
+        return await self._make_request(
+            "POST", 
+            "/signup/email_signin", 
+            client, 
+            json=payload, 
+            error_context="Login failed"
+        )
 
     async def get_profile(self, token, client=None):
-        url = f"{config.API_BASE_URL}/own_profile"
         if client is None:
             client = SuperliveClient.get_client()
         
@@ -55,23 +102,16 @@ class ApiViewModel:
             "client_params": self._get_client_params()
         }
         
-        try:
-            response = await client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Get profile failed: {e.response.text}")
-            try:
-                details = e.response.json()
-            except:
-                details = {"error": e.response.text}
-            raise SuperliveError("Get profile failed", e.response.status_code, details)
-        except Exception as e:
-            logger.error(f"Unexpected profile error: {e}")
-            raise SuperliveError(f"Unexpected error: {str(e)}")
+        return await self._make_request(
+            "POST", 
+            "/own_profile", 
+            client, 
+            headers=headers, 
+            json=payload, 
+            error_context="Get profile failed"
+        )
 
     async def send_gift(self, token, gift_details, client=None):
-        url = f"{config.API_BASE_URL}/livestream/chat/send_gift"
         if client is None:
             client = SuperliveClient.get_client()
         
@@ -93,23 +133,16 @@ class ApiViewModel:
             "guids": guids
         }
         
-        try:
-            response = await client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Send gift failed: {e.response.text}")
-            try:
-                details = e.response.json()
-            except:
-                details = {"error": e.response.text}
-            raise SuperliveError("Send gift failed", e.response.status_code, details)
-        except Exception as e:
-            logger.error(f"Unexpected send gift error: {e}")
-            raise SuperliveError(f"Unexpected error: {str(e)}")
+        return await self._make_request(
+            "POST", 
+            "/livestream/chat/send_gift", 
+            client, 
+            headers=headers, 
+            json=payload, 
+            error_context="Send gift failed"
+        )
 
     async def get_livestream(self, token, livestream_id, client=None):
-        url = f"{config.API_BASE_URL}/livestream/retrieve"
         if client is None:
             client = SuperliveClient.get_client()
         
@@ -121,23 +154,16 @@ class ApiViewModel:
             "livestream_id": livestream_id
         }
         
-        try:
-            response = await client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Get livestream failed: {e.response.text}")
-            try:
-                details = e.response.json()
-            except:
-                details = {"error": e.response.text}
-            raise SuperliveError("Get livestream failed", e.response.status_code, details)
-        except Exception as e:
-            logger.error(f"Unexpected livestream error: {e}")
-            raise SuperliveError(f"Unexpected error: {str(e)}")
+        return await self._make_request(
+            "POST", 
+            "/livestream/retrieve", 
+            client, 
+            headers=headers, 
+            json=payload, 
+            error_context="Get livestream failed"
+        )
 
     async def send_verification_code(self, email, client=None):
-        url = f"{config.API_BASE_URL}/signup/send_email_verification_code"
         if client is None:
             client = SuperliveClient.get_client()
         
@@ -147,23 +173,15 @@ class ApiViewModel:
             "force_new": False
         }
         
-        try:
-            response = await client.post(url, json=payload)
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Send verification code failed: {e.response.text}")
-            try:
-                details = e.response.json()
-            except:
-                details = {"error": e.response.text}
-            raise SuperliveError("Send verification code failed", e.response.status_code, details)
-        except Exception as e:
-            logger.error(f"Unexpected send verification error: {e}")
-            raise SuperliveError(f"Unexpected error: {str(e)}")
+        return await self._make_request(
+            "POST", 
+            "/signup/send_email_verification_code", 
+            client, 
+            json=payload, 
+            error_context="Send verification code failed"
+        )
 
     async def verify_email(self, email_verification_id, code, client=None):
-        url = f"{config.API_BASE_URL}/signup/verify_email"
         if client is None:
             client = SuperliveClient.get_client()
         
@@ -173,24 +191,15 @@ class ApiViewModel:
             "code": int(code)
         }
         
-        try:
-            response = await client.post(url, json=payload)
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Verify email failed: {e.response.text}")
-            try:
-                details = e.response.json()
-            except:
-                details = {"error": e.response.text}
-            raise SuperliveError("Verify email failed", e.response.status_code, details)
-        except Exception as e:
-            logger.error(f"Unexpected verify email error: {e}")
-            raise SuperliveError(f"Unexpected error: {str(e)}")
+        return await self._make_request(
+            "POST", 
+            "/signup/verify_email", 
+            client, 
+            json=payload, 
+            error_context="Verify email failed"
+        )
 
     async def complete_signup(self, email, password, client=None):
-        # Note: Request URL for final signup is same as initial check but it succeeds after verification
-        url = f"{config.API_BASE_URL}/signup/email"
         if client is None:
             client = SuperliveClient.get_client()
         
@@ -200,16 +209,15 @@ class ApiViewModel:
             "password": password
         }
         
-        try:
-            response = await client.post(url, json=payload)
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            logger.error(f"Unexpected complete signup error: {e}")
-            raise SuperliveError(f"Unexpected error: {str(e)}")
+        return await self._make_request(
+            "POST", 
+            "/signup/email", 
+            client, 
+            json=payload, 
+            error_context="Complete signup failed"
+        )
 
     async def logout(self, token, client=None):
-        url = f"{config.API_BASE_URL}/user/logout"
         if client is None:
             client = SuperliveClient.get_client()
         
@@ -220,24 +228,16 @@ class ApiViewModel:
             "client_params": self._get_client_params()
         }
         
-        try:
-            response = await client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Logout failed: {e.response.text}")
-            # Logout failure shouldn't necessarily block the flow, but we raise for consistency
-            try:
-                details = e.response.json()
-            except:
-                details = {"error": e.response.text}
-            raise SuperliveError("Logout failed", e.response.status_code, details)
-        except Exception as e:
-            logger.error(f"Unexpected logout error: {e}")
-            raise SuperliveError(f"Unexpected error: {str(e)}")
+        return await self._make_request(
+            "POST", 
+            "/user/logout", 
+            client, 
+            headers=headers, 
+            json=payload, 
+            error_context="Logout failed"
+        )
 
     async def update_profile(self, token, client=None):
-        url = f"{config.API_BASE_URL}/users/update"
         if client is None:
             client = SuperliveClient.get_client()
             
@@ -260,20 +260,14 @@ class ApiViewModel:
             "bio": "SDE 🖥️"
         }
         
-        try:
-            response = await client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Update profile failed: {e.response.text}")
-            try:
-                details = e.response.json()
-            except:
-                details = {"error": e.response.text}
-            raise SuperliveError("Update profile failed", e.response.status_code, details)
-        except Exception as e:
-            logger.error(f"Unexpected update profile error: {e}")
-            raise SuperliveError(f"Unexpected error: {str(e)}")
+        return await self._make_request(
+            "POST", 
+            "/users/update", 
+            client, 
+            headers=headers, 
+            json=payload, 
+            error_context="Update profile failed"
+        )
 
     def _get_client_params(self, livestream_id=None):
         source_url = "https://superlive.chat/profile/myprofile"

@@ -24,6 +24,7 @@ class Config:
     
     # Superlive API Constants
     API_BASE_URL = "https://api.spl-web-live.link/api/web"
+    API_BASE_URL_BACKUP = "https://api.spl-web.link/api/web"
     ORIGIN = "https://superlive.chat"
     REFERER = "https://superlive.chat/"
     
