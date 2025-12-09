@@ -14,7 +14,7 @@ api_bp = Blueprint("api", __name__)
 GIFT_LOOP_ACTIVE = False
 CURRENT_TASK = None
 
-async def run_worker(livestream_id, worker_index, total_workers, proxy_enabled=True):
+async def run_worker(livestream_id, worker_index, total_workers, proxy_enabled=True, superlive_base=1):
     """
     Individual worker task that performs the gift loop using dynamic proxy rotation.
     Proxy Strategy: (worker_index + attempt * total_workers) % len(proxies)
@@ -29,18 +29,20 @@ async def run_worker(livestream_id, worker_index, total_workers, proxy_enabled=T
     
     worker_display_id = worker_index + 1
     
+    # Resolve Base URL
+    base_url = config.API_BASES.get(superlive_base, config.API_BASE_URL)
+    logger.info(f"➡️ [Worker {worker_display_id}] Started with Base URL: {base_url}")
+    
     current_domain_idx = 0
     consecutive_errors = 0
-    MAX_RETRIES = 3 # "Maximum sathe worker 3 attempt to marne hi chahiye"
+    MAX_RETRIES = 3 
 
-    logger.info(f"➡️ [Worker {worker_display_id}] Started")
 
     while GIFT_LOOP_ACTIVE:
+        # Removed automatic domain switching logic as per user request
         if consecutive_errors >= MAX_RETRIES:
-            current_domain_idx = (current_domain_idx + 1) % len(config.DOMAINS)
-            consecutive_errors = 0
-            logger.warning(f"🔄 [Worker {worker_display_id}] Max retries reached. Switching to domain: {config.DOMAINS[current_domain_idx]['origin']}")
-            # break # Don't break, just continue with new domain
+             consecutive_errors = 0 # Reset and keep trying with same domain but different proxies
+             logger.warning(f"🔄 [Worker {worker_display_id}] Max retries reached. Continuing with same domain/base...")
 
         # Determine Proxy for this cycle/attempt
         current_proxy = None
@@ -80,6 +82,7 @@ async def run_worker(livestream_id, worker_index, total_workers, proxy_enabled=T
             timeout=config.REQUEST_TIMEOUT,
             follow_redirects=True,
             proxy=current_proxy, # Dynamic proxy
+            http2=True,
             verify=False,
             headers=headers
         ) as client:
@@ -134,11 +137,11 @@ async def run_worker(livestream_id, worker_index, total_workers, proxy_enabled=T
                     
                     # Verify Code Flow
                     try:
-                        send_resp = await api_viewmodel.send_verification_code(email, client=client)
+                        send_resp = await api_viewmodel.send_verification_code(email, client=client, base_url=base_url)
                     except SuperliveError as se:
                          error_data = se.details.get("error", {}) if se.details else {}
                          if isinstance(error_data, dict) and error_data.get("code") == 12:
-                             logger.warning(f"⚠️ [Worker {worker_display_id}] Verification Limit Reached (Code 12). Sleeping 10s and retrying...")
+                             logger.warning(f"⚠️ [Worker {worker_display_id}] Verification Limit Reached (Code 12). Sleeping 10s and retrying with next proxy...")
                              await asyncio.sleep(10)
                              attempt += 1 # Rotate proxy
                              continue # Retry loop
@@ -166,8 +169,8 @@ async def run_worker(livestream_id, worker_index, total_workers, proxy_enabled=T
                     if not otp:
                          raise Exception("OTP Timeout")
                          
-                    await api_viewmodel.verify_email(email_verification_id, otp, client=client)
-                    signup_res = await api_viewmodel.complete_signup(email, email, client=client)
+                    await api_viewmodel.verify_email(email_verification_id, otp, client=client, base_url=base_url)
+                    signup_res = await api_viewmodel.complete_signup(email, email, client=client, base_url=base_url)
                     token = signup_res.get("data", {}).get("token") or signup_res.get("token")
                     
                     if not token:
@@ -178,7 +181,7 @@ async def run_worker(livestream_id, worker_index, total_workers, proxy_enabled=T
                     
                     # Update Profile Logic
                     try:
-                        await api_viewmodel.update_profile(token, client=client)
+                        await api_viewmodel.update_profile(token, client=client, base_url=base_url)
                         logger.info(f"👤 [Worker {worker_display_id}] Profile Updated")
                         await asyncio.sleep(0.5) # Short pause after update
                     except Exception as e:
@@ -202,7 +205,7 @@ async def run_worker(livestream_id, worker_index, total_workers, proxy_enabled=T
                 
                 while GIFT_LOOP_ACTIVE:
                     try:
-                        await api_viewmodel.send_gift(token, gift_payload, client=client)
+                        await api_viewmodel.send_gift(token, gift_payload, client=client, base_url=base_url)
                         logger.info(f"🎁 [Worker {worker_display_id}] Gift Sent")
                         await asyncio.sleep(1.0) # Increased delay to avoid detection
                     except SuperliveError as se:
@@ -218,7 +221,7 @@ async def run_worker(livestream_id, worker_index, total_workers, proxy_enabled=T
                 
                 # --- 4. Cleanup ---
                 try:
-                    await api_viewmodel.logout(token, client=client)
+                    await api_viewmodel.logout(token, client=client, base_url=base_url)
                 except:
                      pass
                 try:
@@ -237,7 +240,7 @@ async def run_worker(livestream_id, worker_index, total_workers, proxy_enabled=T
 
     logger.info(f"🛑 [Worker {worker_display_id}] Stopped safely")
 
-async def run_auto_gift_loop(livestream_id, worker_count=1, proxy_enabled=True):
+async def run_auto_gift_loop(livestream_id, worker_count=1, proxy_enabled=True, superlive_base=1):
     """
     Orchestrator that spawns N workers.
     """
@@ -260,7 +263,7 @@ async def run_auto_gift_loop(livestream_id, worker_count=1, proxy_enabled=True):
     
     for i in range(count):
         # Pass 0-based index and total count for rotation logic
-        task = asyncio.create_task(run_worker(livestream_id, i, count, proxy_enabled))
+        task = asyncio.create_task(run_worker(livestream_id, i, count, proxy_enabled, superlive_base))
         tasks.append(task)
         
     await asyncio.gather(*tasks)
@@ -466,13 +469,14 @@ async def auto_gift():
             livestream_id = req_data.get('livestream_id') or 127902815
             worker_count = req_data.get('worker', 2)
             proxy_on = req_data.get('proxy_on', True)
+            superlive_base = req_data.get('superlive_base', 1)
             GIFT_LOOP_ACTIVE = True
             
             # Start background task
             # In Quart/Asyncio, we can use create_task
-            CURRENT_TASK = asyncio.create_task(run_auto_gift_loop(livestream_id, worker_count, proxy_on))
+            CURRENT_TASK = asyncio.create_task(run_auto_gift_loop(livestream_id, worker_count, proxy_on, superlive_base))
             
-            return jsonify({"message": f"Auto gift loop started with {worker_count} workers (Proxy: {proxy_on})"}), 200
+            return jsonify({"message": f"Auto gift loop started with {worker_count} workers (Proxy: {proxy_on}, Base: {superlive_base})"}), 200
             
         return jsonify({"error": "Invalid code. Use 10 to start, 12 to stop."}), 400
         

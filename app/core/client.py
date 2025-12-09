@@ -26,6 +26,7 @@ class SuperliveClient:
             timeout=config.REQUEST_TIMEOUT,
             follow_redirects=True,
             proxy=proxy,
+            http2=True,
             verify=False,
             headers={
                 "accept": "application/json",
