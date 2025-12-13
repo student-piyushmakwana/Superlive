@@ -381,7 +381,7 @@ class ApiViewModel:
         
         payload = {
             "client_params": client_params,
-            "name": "🜲 Ƥɪ፝֟ꪗᴜsꫝ 💗᪲᪲᪲",
+            "name": "🌻ｓｕｎｆｌｏｗｅｒ🌻",
         }
         
         return await self._make_request(
