@@ -1,3 +1,13 @@
+142.111.48.253:7030:lquglryp:ddfpmy174brn
+31.59.20.176:6754:lquglryp:ddfpmy174brn
+23.95.150.145:6114:lquglryp:ddfpmy174brn
+198.23.239.134:6540:lquglryp:ddfpmy174brn
+107.172.163.27:6543:lquglryp:ddfpmy174brn
+198.105.121.200:6462:lquglryp:ddfpmy174brn
+64.137.96.74:6641:lquglryp:ddfpmy174brn
+84.247.60.125:6095:lquglryp:ddfpmy174brn
+216.10.27.159:6837:lquglryp:ddfpmy174brn
+142.111.67.146:5611:lquglryp:ddfpmy174brn
 142.111.48.253:7030:Superlive100:S1KaSuperstar
 31.59.20.176:6754:Superlive100:S1KaSuperstar
 23.95.150.145:6114:Superlive100:S1KaSuperstar
