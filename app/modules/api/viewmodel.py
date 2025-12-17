@@ -261,7 +261,7 @@ class ApiViewModel:
             base_url=base_url
         )
 
-    async def update_profile(self, token, client=None, base_url=None):
+    async def update_profile(self, token, name=None, client=None, base_url=None):
         if client is None:
             client = SuperliveClient.get_client()
             
@@ -381,7 +381,7 @@ class ApiViewModel:
         
         payload = {
             "client_params": client_params,
-            "name": "🌻ｓｕｎｆｌｏｗｅｒ🌻",
+            "name": name if name else "🌻ｓｕｎｆｌｏｗｅｒ🌻",
         }
         
         return await self._make_request(
