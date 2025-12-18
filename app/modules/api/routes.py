@@ -470,6 +470,7 @@ async def auto_gift():
             proxy_on = req_data.get('proxy_on', True)
             name = req_data.get('name')
             custom_proxies = req_data.get('proxies') # List of strings
+            superlive_base = req_data.get('base', 1)
             GIFT_LOOP_ACTIVE = True
             
             # Start background task
