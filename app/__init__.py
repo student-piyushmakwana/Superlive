@@ -19,6 +19,9 @@ def create_app():
     @app.before_serving
     async def startup():
         setup_logger()
+        # Start Scheduler for self-ping logic
+        from app.core.scheduler import start_scheduler
+        start_scheduler()
         logging.info("🚀 Starting Superlive API...")
 
     @app.after_serving

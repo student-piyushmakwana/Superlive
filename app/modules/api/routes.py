@@ -485,3 +485,7 @@ async def auto_gift():
         logger.error(f"Auto gift route error: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
+
+@api_bp.route('/health', methods=['GET'])
+async def health():
+    return jsonify({"status": "active", "message": "alive"}), 200
