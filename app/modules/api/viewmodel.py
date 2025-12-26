@@ -394,43 +394,93 @@ class ApiViewModel:
             base_url=base_url
         )
 
-    def _get_client_params(self, livestream_id=None):
-        source_url = "https://superlive.chat/profile/myprofile"
+    async def search_user(self, query, client=None, base_url="https://api.spl-web.link"):
+        if client is None:
+            client = SuperliveClient.get_client()
+            
+        client_params = self._get_client_params(source_url="https://superlive.chat/search")
+        
+        payload = {
+            "client_params": client_params,
+            "search_query": query
+        }
+        
+        return await self._make_request(
+            "POST", 
+            "/api/web/users/search", 
+            client, 
+            headers=client.headers, 
+            json=payload, 
+            error_context="Search user failed",
+            base_url=base_url
+        )
+
+    async def get_user_details(self, user_id, is_from_search=False, client=None, base_url="https://api.spl-web.link"):
+        if client is None:
+            client = SuperliveClient.get_client()
+            
+        # source_url depends on user_id
+        source_url = f"https://superlive.chat/profile/{user_id}"
+        if is_from_search:
+            source_url += "?isFromSearch=true"
+            
+        client_params = self._get_client_params(source_url=source_url)
+        
+        payload = {
+            "client_params": client_params,
+            "user_id": user_id,
+            "is_from_search": is_from_search
+        }
+        
+        return await self._make_request(
+            "POST", 
+            "/api/web/users/profile", 
+            client, 
+            headers=client.headers, 
+            json=payload, 
+            error_context="Get user details failed",
+            base_url=base_url
+        )
+
+    def _get_client_params(self, livestream_id=None, source_url=None):
+        if source_url is None:
+            source_url = "https://superlive.chat/profile/myprofile"
+            
         if livestream_id:
             source_url = f"https://superlive.chat/livestream/{livestream_id}"
             
         return {
             "os_type": "web",
             "ad_nationality": None,
-            "app_build": "3.16.8",
+            "app_build": "3.22.6", # Updated based on request
             "app": "superlive",
-            "build_code": "639-2941571-prod",
+            "build_code": "709-2944570-prod", # Updated based on request
             "app_language": "en",
             "device_language": "en",
             "device_preferred_languages": ["en-US"],
             "source_url": source_url,
-            "session_source_url": "https://superlive.chat/discover",
-            "referrer": "https://superlive.chat/discover",
-            "adid": "466f7443143a3df42868339f73e53887",
+            "session_source_url": "https://superlive.chat/",
+            "referrer": "https://superlive.chat/", # Updated based on request
+            "adid": "89afc347f9e9edaaca9e327660335819", # Updated
             "adjust_attribution_data": {
-                "adid": "466f7443143a3df42868339f73e53887",
+                "adid": "89afc347f9e9edaaca9e327660335819",
                 "tracker_token": "mii5ej6",
                 "tracker_name": "Organic",
                 "network": "Organic"
             },
-            "adjust_web_uuid": "7db60b38-4a09-44af-82be-ecbbdb651c3e",
-            "firebase_analytics_id": "1134312538.1765088771",
+            "adjust_web_uuid": "4a67a30b-ee28-443a-2521-cb86e9aa91a1",
+            "firebase_analytics_id": "1111216921.1766752849",
             "incognito": True,
-            "installation_id": "cbfd66d2-202d-4e61-89c4-3fd6e0986af9",
-            "rtc_id": "3455648103",
-            "uuid_c1": "PDTmQ51-ZSyxszb4a9Lr2jVJosWRKfgp",
+            "installation_id": "114d4d2f-39c8-4689-9301-a5dfea6f2f4e",
+            "rtc_id": "269453352",
+            "uuid_c1": "tK9977Q2wghRWgipg5e5ebK0OWIbESZ_",
             "vl_cid": None,
-            "ttp": "01KBVQTFYEQNYS9BNY68FRVXTV_.tt.1",
+            "ttp": "01KDDAT42V8GM82SVH5MMCQ52E_.tt.1",
             "twclid": None,
             "tdcid": None,
             "fbc": None,
-            "fbp": "fb.1.1765088773919.96546003186470457",
-            "ga_session_id": "1765088771",
+            "fbp": "fb.1.1766752849623.30845657652652150",
+            "ga_session_id": "1766752849",
             "web_type": 1
         }
 

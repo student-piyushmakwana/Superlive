@@ -353,6 +353,48 @@ async def logout():
         logger.error(f"Logout route error: {e}", exc_info=True)
         return jsonify({"error": "Internal server error"}), 500
 
+@api_bp.route('/user/search', methods=['POST'])
+async def search_user():
+    try:
+        data = await request.get_json()
+        if not data:
+            return jsonify({"error": "Missing JSON body"}), 400
+            
+        query = data.get('query')
+        if not query:
+            return jsonify({"error": "Missing query parameter"}), 400
+            
+        result = await api_viewmodel.search_user(query)
+        return jsonify(result), 200
+        
+    except SuperliveError as e:
+        return jsonify({"error": e.details or e.message}), e.status_code
+    except Exception as e:
+        logger.error(f"Search user route error: {e}", exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+@api_bp.route('/user/details', methods=['POST'])
+async def get_user_details():
+    try:
+        data = await request.get_json()
+        if not data:
+            return jsonify({"error": "Missing JSON body"}), 400
+            
+        user_id = data.get('user_id')
+        if not user_id:
+            return jsonify({"error": "Missing user_id parameter"}), 400
+            
+        is_from_search = data.get('is_from_search', False)
+            
+        result = await api_viewmodel.get_user_details(user_id, is_from_search)
+        return jsonify(result), 200
+        
+    except SuperliveError as e:
+        return jsonify({"error": e.details or e.message}), e.status_code
+    except Exception as e:
+        logger.error(f"Get user details route error: {e}", exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
 @api_bp.route('/send-gift', methods=['POST'])
 async def send_gift():
     try:
