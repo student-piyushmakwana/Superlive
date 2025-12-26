@@ -319,16 +319,38 @@ async def update_profile():
             return jsonify({"error": "Missing JSON body"}), 400
             
         token = data.get('token')
+        name = data.get('name') # Optional custom name
+        
         if not token:
             return jsonify({"error": "Missing token"}), 400
             
-        result = await api_viewmodel.update_profile(token)
+        result = await api_viewmodel.update_profile(token, name=name)
         return jsonify(result), 200
         
     except SuperliveError as e:
         return jsonify({"error": e.details or e.message}), e.status_code
     except Exception as e:
         logger.error(f"Update profile route error: {e}", exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+@api_bp.route('/logout', methods=['POST'])
+async def logout():
+    try:
+        data = await request.get_json()
+        if not data:
+            return jsonify({"error": "Missing JSON body"}), 400
+            
+        token = data.get('token')
+        if not token:
+            return jsonify({"error": "Missing token"}), 400
+            
+        result = await api_viewmodel.logout(token)
+        return jsonify(result), 200
+        
+    except SuperliveError as e:
+        return jsonify({"error": e.details or e.message}), e.status_code
+    except Exception as e:
+        logger.error(f"Logout route error: {e}", exc_info=True)
         return jsonify({"error": "Internal server error"}), 500
 
 @api_bp.route('/send-gift', methods=['POST'])
